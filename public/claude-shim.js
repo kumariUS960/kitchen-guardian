@@ -83,14 +83,17 @@
     var d = await ask(input, opts, true);
     try { return parseJson(d.text); } catch (e) { throw fail('invalid_json', 'The reply was not valid JSON.', d.text); }
   };
-  sample.limits = async function () {
-    return { maxPromptBytes: 20000, images: { maxCount: 1, maxInputBytes: 20000000, mediaTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } };
+    sample.limits = async function () {
+    var h = await health;
+    var limits = { maxPromptBytes: 20000 };
+    if (h.vision) limits.images = { maxCount: 1, maxInputBytes: 20000000, mediaTypes: ['image/jpeg', 'image/png', 'image/webp'] };
+    return limits;
   };
 
-  var ready = fetch('/api/health').then(function (r) { return r.json(); }).then(function (h) { return !!h.ai; }).catch(function () { return false; });
+  var health = fetch('/api/health').then(function (r) { return r.json(); }).catch(function () { return {}; });
   window.claude = {
     use: async function (name) {
-      if (name === 'sample') return (await ready) ? sample : null;
+      if (name === 'sample') return (await health).ai ? sample : null;
       return null; // no shared database here: the page falls back to this browser's storage
     }
   };

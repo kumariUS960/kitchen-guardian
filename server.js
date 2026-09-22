@@ -14,14 +14,15 @@ const express = require('express');
 
 const PORT = Number(process.env.PORT) || 3000;
 const TEXT_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
-const VISION_MODEL = process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct';
+// Optional: only set this if your Groq account has a vision-capable model available.
+// Leave it unset (the default) and the app hides the photo-scan feature automatically.
+const VISION_MODEL = (process.env.GROQ_VISION_MODEL || '').trim();
 const KEY = (process.env.GROQ_API_KEY || '').trim();
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 const app = express();
 app.use(express.json({ limit: '8mb' }));
 
-// Simple per-IP limit so a shared link cannot burn through your API credit.
 const WINDOW_MS = 60 * 1000;
 const MAX_PER_WINDOW = 20;
 const hits = new Map();
@@ -37,7 +38,7 @@ function limiter(req, res, next) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.json({ ai: Boolean(KEY), model: TEXT_MODEL });
+  res.json({ ai: Boolean(KEY), vision: Boolean(KEY && VISION_MODEL), model: TEXT_MODEL });
 });
 
 app.post('/api/ask', limiter, async (req, res) => {
@@ -52,9 +53,12 @@ app.post('/api/ask', limiter, async (req, res) => {
   var userContent;
   var model = TEXT_MODEL;
   if (image) {
+    if (!VISION_MODEL) {
+      return res.status(503).json({ code: 'images_unavailable', message: 'No vision model is configured on this server (set GROQ_VISION_MODEL).' });
+    }
     const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(String(image));
     if (!m) return res.status(400).json({ code: 'image_rejected', message: 'Unsupported image.' });
-    model = VISION_MODEL; // only the vision model can look at the photo
+    model = VISION_MODEL;
     userContent = [
       { type: 'text', text: prompt },
       { type: 'image_url', image_url: { url: image } },
@@ -99,7 +103,11 @@ app.post('/api/ask', limiter, async (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.listen(PORT, () => {
-  console.log(`Kitchen Guardian is running at http://localhost:${PORT}`);
-  console.log(KEY ? `AI helpers: ON (text model ${TEXT_MODEL}, vision model ${VISION_MODEL})` : 'AI helpers: OFF. Add GROQ_API_KEY to a .env file, then restart.');
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Kitchen Guardian is running at http://localhost:${PORT}`);
+    console.log(KEY ? `AI helpers: ON (text model ${TEXT_MODEL}, vision model ${VISION_MODEL || 'none - photo scan is off'})` : 'AI helpers: OFF. Add GROQ_API_KEY to a .env file, then restart.');
+  });
+}
+
+module.exports = app;
